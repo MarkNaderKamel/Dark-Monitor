@@ -455,6 +455,80 @@ class DatabaseManager {
     }
 
     /**
+     * Store enrichment data (VT, HIBP, Geo)
+     */
+    public function storeEnrichment($type, $value, $data) {
+        try {
+            $stmt = $this->db->prepare('
+                INSERT OR REPLACE INTO enrichment_data (entity_type, entity_value, enrichment_data, updated_at)
+                VALUES (:type, :value, :data, CURRENT_TIMESTAMP)
+            ');
+            
+            $stmt->bindValue(':type', $type, SQLITE3_TEXT);
+            $stmt->bindValue(':value', $value, SQLITE3_TEXT);
+            $stmt->bindValue(':data', json_encode($data), SQLITE3_TEXT);
+            
+            return $stmt->execute();
+        } catch (Exception $e) {
+            // If table doesn't exist, create it
+            $this->db->exec('
+                CREATE TABLE IF NOT EXISTS enrichment_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_type TEXT NOT NULL,
+                    entity_value TEXT NOT NULL,
+                    enrichment_data TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(entity_type, entity_value)
+                )
+            ');
+            $this->db->exec('CREATE INDEX IF NOT EXISTS idx_enrichment ON enrichment_data(entity_type, entity_value)');
+            
+            // Retry
+            $stmt = $this->db->prepare('
+                INSERT OR REPLACE INTO enrichment_data (entity_type, entity_value, enrichment_data, updated_at)
+                VALUES (:type, :value, :data, CURRENT_TIMESTAMP)
+            ');
+            
+            $stmt->bindValue(':type', $type, SQLITE3_TEXT);
+            $stmt->bindValue(':value', $value, SQLITE3_TEXT);
+            $stmt->bindValue(':data', json_encode($data), SQLITE3_TEXT);
+            
+            return $stmt->execute();
+        }
+    }
+
+    /**
+     * Get enrichment data (cached for 24 hours)
+     */
+    public function getEnrichment($type, $value) {
+        try {
+            $stmt = $this->db->prepare('
+                SELECT enrichment_data, updated_at 
+                FROM enrichment_data 
+                WHERE entity_type = :type AND entity_value = :value
+            ');
+            
+            $stmt->bindValue(':type', $type, SQLITE3_TEXT);
+            $stmt->bindValue(':value', $value, SQLITE3_TEXT);
+            
+            $result = $stmt->execute();
+            $row = $result->fetchArray(SQLITE3_ASSOC);
+            
+            if ($row) {
+                // Check if data is less than 24 hours old
+                $updatedAt = strtotime($row['updated_at']);
+                if (time() - $updatedAt < 86400) {
+                    return json_decode($row['enrichment_data'], true);
+                }
+            }
+            
+            return null;
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    /**
      * Close database connection
      */
     public function close() {

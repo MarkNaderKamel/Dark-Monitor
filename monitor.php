@@ -74,6 +74,12 @@ require_once __DIR__ . '/src/DiscordNotifier.php';
 require_once __DIR__ . '/src/ReputationScorer.php';
 require_once __DIR__ . '/src/ThreatCorrelation.php';
 require_once __DIR__ . '/src/SummaryReporter.php';
+require_once __DIR__ . '/src/VirusTotalEnricher.php';
+require_once __DIR__ . '/src/HIBPChecker.php';
+require_once __DIR__ . '/src/GeolocateIP.php';
+require_once __DIR__ . '/src/AlertRulesEngine.php';
+require_once __DIR__ . '/src/ExportManager.php';
+require_once __DIR__ . '/src/AdditionalPasteSites.php';
 
 // Parse command line arguments
 $options = parseArguments($argv ?? []);
@@ -99,6 +105,12 @@ $discordNotifier = new DiscordNotifier($logger, $config);
 $reputationScorer = new ReputationScorer($db, $logger, $config);
 $threatCorrelation = new ThreatCorrelation($db, $logger, $config);
 $summaryReporter = new SummaryReporter($db, $logger, $config, $notifier);
+$virusTotalEnricher = new VirusTotalEnricher($config, $logger, $db);
+$hibpChecker = new HIBPChecker($config, $logger, $db);
+$geolocateIP = new GeolocateIP($logger, $db);
+$alertRulesEngine = new AlertRulesEngine($db, $logger);
+$exportManager = new ExportManager($db, $logger, $config);
+$additionalPasteSites = new AdditionalPasteSites($httpClient, $logger);
 
 // Create necessary directories
 createDirectories($config);
@@ -168,7 +180,14 @@ while (true) {
             $allFindings = array_merge($allFindings, $githubFindings);
         }
 
-        // 7. Process findings with threat intelligence
+        // 7. Monitor Additional Paste Sites (if enabled)
+        if ($additionalPasteSites->isEnabled() && ($config['additional_paste_sites']['enabled'] ?? false)) {
+            $logger->info('SYSTEM', 'Monitoring additional paste sites...');
+            $additionalFindings = $additionalPasteSites->monitor($config['keywords']);
+            $allFindings = array_merge($allFindings, $additionalFindings);
+        }
+
+        // 8. Process findings with threat intelligence
         if (!empty($allFindings)) {
             $logger->info('SYSTEM', "Found " . count($allFindings) . " potential matches");
             
@@ -188,8 +207,26 @@ while (true) {
                     $finding['severity'] = 'LOW';
                 }
                 
-                // Score IOCs if present
+                // Score and enrich IOCs if present
                 if (!empty($finding['iocs'])) {
+                    // Enrich with VirusTotal (if enabled)
+                    if ($virusTotalEnricher->isEnabled() && ($finding['severity'] === 'CRITICAL' || $finding['severity'] === 'HIGH')) {
+                        $enrichment = $virusTotalEnricher->enrichIOCs($finding['iocs']);
+                        $finding['vt_enrichment'] = $enrichment;
+                    }
+                    
+                    // Check emails with HIBP (if enabled)
+                    if ($hibpChecker->isEnabled() && !empty($finding['iocs']['emails'])) {
+                        $hibpData = $hibpChecker->enrichEmails($finding['iocs']['emails']);
+                        $finding['hibp_enrichment'] = $hibpData;
+                    }
+                    
+                    // Geolocate IPs
+                    if (!empty($finding['iocs']['ips']) && ($config['geolocation']['enabled'] ?? false)) {
+                        $geoData = $geolocateIP->locateMultiple($finding['iocs']['ips']);
+                        $finding['geo_enrichment'] = $geoData;
+                    }
+                    
                     foreach ($finding['iocs'] as $type => $items) {
                         if (!is_array($items)) continue;
                         
@@ -221,6 +258,16 @@ while (true) {
                     $finding['url'],
                     $finding['snippet']
                 );
+                
+                // Evaluate alert rules
+                $triggeredRules = $alertRulesEngine->evaluateFinding($finding);
+                if (!empty($triggeredRules)) {
+                    $alertRulesEngine->executeActions($triggeredRules, $finding, [
+                        'slack' => $slackNotifier,
+                        'discord' => $discordNotifier,
+                        'email' => $notifier
+                    ]);
+                }
                 
                 // Send notifications for high-severity findings
                 if ($finding['severity'] === 'CRITICAL' || $finding['severity'] === 'HIGH') {

@@ -210,6 +210,37 @@ return [
         'cache_dir' => __DIR__ . '/cache',
         'state_file' => __DIR__ . '/data/state.json',
         'database_file' => __DIR__ . '/data/monitoring.db',
+        'export_dir' => __DIR__ . '/exports'
+    ],
+
+    // ============================================
+    // THREAT INTELLIGENCE INTEGRATIONS
+    // ============================================
+    'virustotal' => [
+        'api_key' => getenv('VIRUSTOTAL_API_KEY') ?: '',
+        'enabled' => !empty(getenv('VIRUSTOTAL_API_KEY'))
+    ],
+
+    'hibp' => [
+        'api_key' => getenv('HIBP_API_KEY') ?: '',
+        'enabled' => !empty(getenv('HIBP_API_KEY'))
+    ],
+
+    'geolocation' => [
+        'enabled' => true
+    ],
+
+    'additional_paste_sites' => [
+        'enabled' => true
+    ],
+
+    'alert_rules' => [
+        'enabled' => true
+    ],
+
+    'export' => [
+        'auto_export_daily' => false,
+        'formats' => ['json', 'csv', 'stix']
     ],
 
     // ============================================
