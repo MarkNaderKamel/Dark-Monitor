@@ -29,9 +29,19 @@ class Notifier {
             $this->sendEmail($findings);
         }
 
-        // Send webhook notification
+        // Send generic webhook notification
         if ($this->config['webhook']['enabled']) {
             $this->sendWebhook($findings);
+        }
+
+        // Send Slack notification
+        if ($this->config['slack']['enabled'] ?? false) {
+            $this->sendSlack($findings);
+        }
+
+        // Send Discord notification
+        if ($this->config['discord']['enabled'] ?? false) {
+            $this->sendDiscord($findings);
         }
     }
 
@@ -198,6 +208,195 @@ class Notifier {
 
         } catch (Exception $e) {
             $this->logger->error('NOTIFIER', 'Webhook error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Send Slack notification
+     */
+    private function sendSlack($findings) {
+        try {
+            $webhookUrl = $this->config['slack']['webhook_url'] ?? '';
+            
+            if (empty($webhookUrl)) {
+                return;
+            }
+
+            // Group findings by severity
+            $bySeverity = [];
+            foreach ($findings as $finding) {
+                $severity = $finding['severity'] ?? 'LOW';
+                if (!isset($bySeverity[$severity])) {
+                    $bySeverity[$severity] = [];
+                }
+                $bySeverity[$severity][] = $finding;
+            }
+
+            // Build Slack message blocks
+            $blocks = [
+                [
+                    'type' => 'header',
+                    'text' => [
+                        'type' => 'plain_text',
+                        'text' => '🚨 Security Monitoring Alert',
+                        'emoji' => true
+                    ]
+                ],
+                [
+                    'type' => 'section',
+                    'text' => [
+                        'type' => 'mrkdwn',
+                        'text' => '*' . count($findings) . ' new security findings detected*'
+                    ]
+                ],
+                [
+                    'type' => 'divider'
+                ]
+            ];
+
+            // Add findings by severity
+            foreach (['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as $sev) {
+                if (isset($bySeverity[$sev])) {
+                    $emoji = ['CRITICAL' => ':red_circle:', 'HIGH' => ':orange_circle:', 'MEDIUM' => ':yellow_circle:', 'LOW' => ':white_circle:'];
+                    
+                    $blocks[] = [
+                        'type' => 'section',
+                        'text' => [
+                            'type' => 'mrkdwn',
+                            'text' => $emoji[$sev] . ' *' . $sev . ' (' . count($bySeverity[$sev]) . ')*'
+                        ]
+                    ];
+
+                    foreach (array_slice($bySeverity[$sev], 0, 5) as $finding) {
+                        $blocks[] = [
+                            'type' => 'section',
+                            'text' => [
+                                'type' => 'mrkdwn',
+                                'text' => '*' . $finding['source'] . '*\n' . 
+                                         $finding['title'] . '\n' .
+                                         '<' . $finding['url'] . '|View Finding>'
+                            ]
+                        ];
+                    }
+
+                    if (count($bySeverity[$sev]) > 5) {
+                        $blocks[] = [
+                            'type' => 'context',
+                            'elements' => [
+                                [
+                                    'type' => 'mrkdwn',
+                                    'text' => '_+' . (count($bySeverity[$sev]) - 5) . ' more ' . $sev . ' findings_'
+                                ]
+                            ]
+                        ];
+                    }
+                }
+            }
+
+            $payload = json_encode(['blocks' => $blocks]);
+
+            $ch = curl_init($webhookUrl);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode === 200) {
+                $this->logger->info('NOTIFIER', 'Slack notification sent successfully');
+            } else {
+                $this->logger->error('NOTIFIER', "Slack notification failed with HTTP $httpCode");
+            }
+
+        } catch (Exception $e) {
+            $this->logger->error('NOTIFIER', 'Slack error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Send Discord notification
+     */
+    private function sendDiscord($findings) {
+        try {
+            $webhookUrl = $this->config['discord']['webhook_url'] ?? '';
+            
+            if (empty($webhookUrl)) {
+                return;
+            }
+
+            // Build Discord embed
+            $embeds = [];
+            
+            // Group by severity
+            $bySeverity = [];
+            foreach ($findings as $finding) {
+                $severity = $finding['severity'] ?? 'LOW';
+                if (!isset($bySeverity[$severity])) {
+                    $bySeverity[$severity] = [];
+                }
+                $bySeverity[$severity][] = $finding;
+            }
+
+            // Color codes
+            $colors = [
+                'CRITICAL' => 0xFF0000, // Red
+                'HIGH' => 0xFF6600,     // Orange
+                'MEDIUM' => 0xFFCC00,   // Yellow
+                'LOW' => 0x00FF00       // Green
+            ];
+
+            foreach (['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as $sev) {
+                if (isset($bySeverity[$sev])) {
+                    $fields = [];
+                    
+                    foreach (array_slice($bySeverity[$sev], 0, 5) as $finding) {
+                        $fields[] = [
+                            'name' => $finding['source'],
+                            'value' => $finding['title'] . '\n[View](' . $finding['url'] . ')',
+                            'inline' => false
+                        ];
+                    }
+
+                    $embeds[] = [
+                        'title' => '🚨 ' . $sev . ' Severity (' . count($bySeverity[$sev]) . ')',
+                        'color' => $colors[$sev],
+                        'fields' => $fields,
+                        'timestamp' => date('c'),
+                        'footer' => [
+                            'text' => 'Security Monitoring System'
+                        ]
+                    ];
+                }
+            }
+
+            $payload = json_encode([
+                'content' => '**' . count($findings) . ' new security findings detected**',
+                'embeds' => array_slice($embeds, 0, 10) // Discord limit
+            ]);
+
+            $ch = curl_init($webhookUrl);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode === 200 || $httpCode === 204) {
+                $this->logger->info('NOTIFIER', 'Discord notification sent successfully');
+            } else {
+                $this->logger->error('NOTIFIER', "Discord notification failed with HTTP $httpCode");
+            }
+
+        } catch (Exception $e) {
+            $this->logger->error('NOTIFIER', 'Discord error: ' . $e->getMessage());
         }
     }
 }

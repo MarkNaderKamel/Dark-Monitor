@@ -209,5 +209,74 @@ return [
         'findings_file' => __DIR__ . '/data/findings.json',
         'cache_dir' => __DIR__ . '/cache',
         'state_file' => __DIR__ . '/data/state.json',
+        'database_file' => __DIR__ . '/data/monitoring.db',
+    ],
+
+    // ============================================
+    // THREAT INTELLIGENCE APIS
+    // ============================================
+    'threat_intelligence' => [
+        'enabled' => false,
+        'hibp_api_key' => getenv('HIBP_API_KEY') ?: '',          // Have I Been Pwned API key
+        'virustotal_api_key' => getenv('VIRUSTOTAL_API_KEY') ?: '', // VirusTotal API key
+        'abuseipdb_api_key' => getenv('ABUSEIPDB_API_KEY') ?: '',   // AbuseIPDB API key
+    ],
+
+    // ============================================
+    // ENHANCED NOTIFICATIONS
+    // ============================================
+    'notifications' => [
+        'email' => [
+            'enabled' => false,
+            'smtp_host' => 'smtp.gmail.com',
+            'smtp_port' => 587,
+            'smtp_user' => getenv('SMTP_USER') ?: '',
+            'smtp_password' => getenv('SMTP_PASSWORD') ?: '',
+            'from_email' => getenv('SMTP_USER') ?: 'monitor@security.local',
+            'to_email' => getenv('NOTIFY_EMAIL') ?: '',
+            'subject_prefix' => '[SECURITY ALERT]',
+        ],
+        'webhook' => [
+            'enabled' => false,
+            'url' => getenv('WEBHOOK_URL') ?: '',
+        ],
+        'slack' => [
+            'enabled' => false,
+            'webhook_url' => getenv('SLACK_WEBHOOK_URL') ?: '',
+        ],
+        'discord' => [
+            'enabled' => false,
+            'webhook_url' => getenv('DISCORD_WEBHOOK_URL') ?: '',
+        ],
+    ],
+
+    // ============================================
+    // ADDITIONAL MONITORING SOURCES
+    // ============================================
+    'pastebin' => [
+        'enabled' => false,
+    ],
+
+    'reddit' => [
+        'enabled' => false,
+        'subreddits' => [
+            'security',
+            'cybersecurity',
+            'netsec',
+            'privacy',
+            'crypto',
+            'hacking',
+            'DataBreaches',
+        ],
+    ],
+
+    'github' => [
+        'enabled' => false,
+        'api_token' => getenv('GITHUB_API_TOKEN') ?: '',
+        'search_queries' => [
+            // Add your company domain, API keys patterns, etc.
+            // Example: 'yourcompany.com password',
+            // Example: 'yourcompany api_key',
+        ],
     ],
 ];
