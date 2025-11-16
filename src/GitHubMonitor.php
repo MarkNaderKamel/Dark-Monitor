@@ -122,6 +122,8 @@ class GitHubMonitor {
             $foundKeywords = ['github-leak'];
         }
 
+        $iocs = $this->extractIOCs($snippet);
+
         $this->logger->info('GITHUB', "Match found: {$result['name']}");
 
         return [
@@ -131,6 +133,40 @@ class GitHubMonitor {
             'snippet' => mb_substr($snippet, 0, 200),
             'keywords' => $foundKeywords,
             'timestamp' => date('Y-m-d H:i:s'),
+            'iocs' => $iocs
         ];
+    }
+
+    /**
+     * Extract IOCs from content
+     */
+    private function extractIOCs($content) {
+        $iocs = [];
+
+        // Extract API keys and secrets (common patterns)
+        preg_match_all('/["\']?(?:api[_-]?key|secret[_-]?key|access[_-]?token)["\']?\s*[=:]\s*["\']?([a-zA-Z0-9_\-]{16,64})["\']?/i', $content, $keys);
+        if (!empty($keys[1])) {
+            $iocs['api_keys'] = array_unique(array_slice($keys[1], 0, 5));
+        }
+
+        // Extract IP addresses
+        preg_match_all('/\b(?:\d{1,3}\.){3}\d{1,3}\b/', $content, $ips);
+        if (!empty($ips[0])) {
+            $iocs['ips'] = array_unique(array_slice($ips[0], 0, 5));
+        }
+
+        // Extract email addresses
+        preg_match_all('/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/', $content, $emails);
+        if (!empty($emails[0])) {
+            $iocs['emails'] = array_unique(array_slice($emails[0], 0, 5));
+        }
+
+        // Extract hashes
+        preg_match_all('/\b[a-f0-9]{32,64}\b/i', $content, $hashes);
+        if (!empty($hashes[0])) {
+            $iocs['hashes'] = array_unique(array_slice($hashes[0], 0, 3));
+        }
+
+        return $iocs;
     }
 }

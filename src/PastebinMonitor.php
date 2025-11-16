@@ -123,7 +123,10 @@ class PastebinMonitor {
         }
 
         // Extract snippet
-        $snippet = mb_substr($content, 0, 300);
+        $snippet = $this->extractSnippet($content, $foundKeywords[0]);
+        
+        // Extract IOCs
+        $iocs = $this->extractIOCs($content);
 
         $this->logger->info('PASTEBIN', "Match found: {$paste['title']}");
 
@@ -134,7 +137,65 @@ class PastebinMonitor {
             'snippet' => $snippet,
             'keywords' => $foundKeywords,
             'timestamp' => date('Y-m-d H:i:s'),
+            'iocs' => $iocs
         ];
+    }
+
+    /**
+     * Extract snippet around keyword
+     */
+    private function extractSnippet($content, $keyword, $length = 300) {
+        $pos = stripos($content, $keyword);
+        
+        if ($pos === false) {
+            return mb_substr($content, 0, $length);
+        }
+
+        $start = max(0, $pos - 100);
+        $snippet = mb_substr($content, $start, $length);
+        
+        if ($start > 0) {
+            $snippet = '...' . $snippet;
+        }
+        
+        if (mb_strlen($content) > $start + $length) {
+            $snippet .= '...';
+        }
+
+        return $snippet;
+    }
+
+    /**
+     * Extract IOCs (Indicators of Compromise) from content
+     */
+    private function extractIOCs($content) {
+        $iocs = [];
+
+        // Extract IP addresses
+        preg_match_all('/\b(?:\d{1,3}\.){3}\d{1,3}\b/', $content, $ips);
+        if (!empty($ips[0])) {
+            $iocs['ips'] = array_unique(array_slice($ips[0], 0, 10));
+        }
+
+        // Extract email addresses
+        preg_match_all('/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/', $content, $emails);
+        if (!empty($emails[0])) {
+            $iocs['emails'] = array_unique(array_slice($emails[0], 0, 10));
+        }
+
+        // Extract URLs
+        preg_match_all('/\b(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?\b/i', $content, $urls);
+        if (!empty($urls[0])) {
+            $iocs['urls'] = array_unique(array_slice($urls[0], 0, 10));
+        }
+
+        // Extract hashes (MD5, SHA1, SHA256)
+        preg_match_all('/\b[a-f0-9]{32,64}\b/i', $content, $hashes);
+        if (!empty($hashes[0])) {
+            $iocs['hashes'] = array_unique(array_slice($hashes[0], 0, 5));
+        }
+
+        return $iocs;
     }
 
     /**

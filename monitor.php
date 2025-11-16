@@ -61,10 +61,19 @@ $config = require __DIR__ . '/config.php';
 // Load classes
 require_once __DIR__ . '/src/Logger.php';
 require_once __DIR__ . '/src/HttpClient.php';
+require_once __DIR__ . '/src/DatabaseManager.php';
 require_once __DIR__ . '/src/TelegramMonitor.php';
 require_once __DIR__ . '/src/WebScraper.php';
 require_once __DIR__ . '/src/DarkWebMonitor.php';
+require_once __DIR__ . '/src/PastebinMonitor.php';
+require_once __DIR__ . '/src/RedditMonitor.php';
+require_once __DIR__ . '/src/GitHubMonitor.php';
 require_once __DIR__ . '/src/Notifier.php';
+require_once __DIR__ . '/src/SlackNotifier.php';
+require_once __DIR__ . '/src/DiscordNotifier.php';
+require_once __DIR__ . '/src/ReputationScorer.php';
+require_once __DIR__ . '/src/ThreatCorrelation.php';
+require_once __DIR__ . '/src/SummaryReporter.php';
 
 // Parse command line arguments
 $options = parseArguments($argv ?? []);
@@ -76,11 +85,20 @@ if ($options['help']) {
 
 // Initialize system
 $logger = new Logger($config);
+$db = new DatabaseManager($config, $logger);
 $httpClient = new HttpClient($config, $logger);
 $telegramMonitor = new TelegramMonitor($config, $logger, $httpClient);
 $webScraper = new WebScraper($config, $logger, $httpClient);
 $darkWebMonitor = new DarkWebMonitor($config, $logger, $httpClient);
+$pastebinMonitor = new PastebinMonitor($config, $logger, $httpClient);
+$redditMonitor = new RedditMonitor($config, $logger, $httpClient);
+$githubMonitor = new GitHubMonitor($config, $logger, $httpClient);
 $notifier = new Notifier($config, $logger);
+$slackNotifier = new SlackNotifier($logger, $config);
+$discordNotifier = new DiscordNotifier($logger, $config);
+$reputationScorer = new ReputationScorer($db, $logger, $config);
+$threatCorrelation = new ThreatCorrelation($db, $logger, $config);
+$summaryReporter = new SummaryReporter($db, $logger, $config, $notifier);
 
 // Create necessary directories
 createDirectories($config);
@@ -129,23 +147,122 @@ while (true) {
             $allFindings = array_merge($allFindings, $darkWebFindings);
         }
 
-        // 4. Log findings
+        // 4. Monitor Pastebin (if enabled)
+        if ($pastebinMonitor->isEnabled()) {
+            $logger->info('SYSTEM', 'Monitoring Pastebin...');
+            $pastebinFindings = $pastebinMonitor->monitor($config['keywords']);
+            $allFindings = array_merge($allFindings, $pastebinFindings);
+        }
+
+        // 5. Monitor Reddit (if enabled)
+        if ($redditMonitor->isEnabled()) {
+            $logger->info('SYSTEM', 'Monitoring Reddit...');
+            $redditFindings = $redditMonitor->monitor($config['keywords']);
+            $allFindings = array_merge($allFindings, $redditFindings);
+        }
+
+        // 6. Monitor GitHub (if enabled)
+        if ($githubMonitor->isEnabled()) {
+            $logger->info('SYSTEM', 'Monitoring GitHub...');
+            $githubFindings = $githubMonitor->monitor($config['keywords']);
+            $allFindings = array_merge($allFindings, $githubFindings);
+        }
+
+        // 7. Process findings with threat intelligence
         if (!empty($allFindings)) {
             $logger->info('SYSTEM', "Found " . count($allFindings) . " potential matches");
             
-            foreach ($allFindings as $finding) {
+            foreach ($allFindings as &$finding) {
+                // Calculate threat score
+                $finding['threat_score'] = $threatCorrelation->calculateThreatScore($finding);
+                
+                // Determine severity
+                $score = $finding['threat_score'];
+                if ($score >= 80) {
+                    $finding['severity'] = 'CRITICAL';
+                } elseif ($score >= 60) {
+                    $finding['severity'] = 'HIGH';
+                } elseif ($score >= 40) {
+                    $finding['severity'] = 'MEDIUM';
+                } else {
+                    $finding['severity'] = 'LOW';
+                }
+                
+                // Score IOCs if present
+                if (!empty($finding['iocs'])) {
+                    foreach ($finding['iocs'] as $type => $items) {
+                        if (!is_array($items)) continue;
+                        
+                        foreach ($items as $item) {
+                            $entityType = ($type === 'ips') ? 'ip' : (($type === 'urls') ? 'url' : 'hash');
+                            
+                            $reputationScorer->scoreEntity($entityType, $item, [
+                                'malicious' => ($finding['severity'] === 'CRITICAL' || $finding['severity'] === 'HIGH')
+                            ]);
+                            
+                            // Store IOC in database
+                            $db->insertIOC([
+                                'type' => $type,
+                                'value' => $item,
+                                'severity' => $finding['severity'],
+                                'source' => $finding['source']
+                            ]);
+                        }
+                    }
+                }
+                
+                // Store in database
+                $findingId = $db->insertFinding($finding);
+                
+                // Log finding
                 $logger->logFinding(
                     $finding['source'],
                     $finding['title'],
                     $finding['url'],
                     $finding['snippet']
                 );
+                
+                // Send notifications for high-severity findings
+                if ($finding['severity'] === 'CRITICAL' || $finding['severity'] === 'HIGH') {
+                    if ($slackNotifier->isEnabled()) {
+                        $slackNotifier->notify($finding);
+                    }
+                    
+                    if ($discordNotifier->isEnabled()) {
+                        $discordNotifier->notify($finding);
+                    }
+                }
             }
-
-            // 5. Send notifications
+            
+            // Send standard notifications
             $notifier->notify($allFindings);
+            
+            // Run correlation analysis
+            if (count($allFindings) > 1) {
+                $logger->info('SYSTEM', 'Running threat correlation analysis...');
+                $correlations = $threatCorrelation->correlateFindings();
+                $logger->info('SYSTEM', 'Found ' . count($correlations) . ' threat correlations');
+            }
         } else {
             $logger->info('SYSTEM', 'No matches found in this iteration');
+        }
+        
+        // Generate summary report if configured
+        if ($iteration % 24 === 0 || ($iteration === 1 && date('H') === '00')) {
+            $logger->info('SYSTEM', 'Generating summary report...');
+            try {
+                $summary = $summaryReporter->generateDailySummary();
+                
+                if ($slackNotifier->isEnabled()) {
+                    $slackNotifier->sendSummary($summary['statistics']);
+                }
+                
+                if ($discordNotifier->isEnabled()) {
+                    $discordNotifier->sendSummary($summary['statistics']);
+                }
+            } catch (Exception $e) {
+                $logger->error('SYSTEM', 'Failed to generate summary: ' . $e->getMessage());
+            }
         }
 
         // Save state

@@ -99,6 +99,60 @@ class DatabaseManager {
                 status TEXT DEFAULT "running"
             )
         ');
+
+        // Reputation scores table for IPs, domains, URLs
+        $this->db->exec('
+            CREATE TABLE IF NOT EXISTS reputation_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type TEXT NOT NULL,
+                entity_value TEXT NOT NULL,
+                score INTEGER DEFAULT 50,
+                classification TEXT DEFAULT "unknown",
+                last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                occurrences INTEGER DEFAULT 1,
+                malicious_count INTEGER DEFAULT 0,
+                metadata TEXT,
+                UNIQUE(entity_type, entity_value)
+            )
+        ');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_reputation_entity ON reputation_scores(entity_type, entity_value)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_reputation_score ON reputation_scores(score)');
+
+        // IOCs (Indicators of Compromise) table
+        $this->db->exec('
+            CREATE TABLE IF NOT EXISTS iocs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ioc_type TEXT NOT NULL,
+                ioc_value TEXT NOT NULL,
+                threat_type TEXT,
+                severity TEXT DEFAULT "MEDIUM",
+                confidence INTEGER DEFAULT 50,
+                first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                source TEXT,
+                description TEXT,
+                tags TEXT,
+                UNIQUE(ioc_type, ioc_value)
+            )
+        ');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_ioc_type ON iocs(ioc_type)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_ioc_severity ON iocs(severity)');
+
+        // Threat correlations table
+        $this->db->exec('
+            CREATE TABLE IF NOT EXISTS threat_correlations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                finding_id_1 INTEGER,
+                finding_id_2 INTEGER,
+                correlation_score REAL DEFAULT 0.0,
+                common_iocs TEXT,
+                mitre_techniques TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(finding_id_1) REFERENCES findings(id),
+                FOREIGN KEY(finding_id_2) REFERENCES findings(id)
+            )
+        ');
     }
 
     /**
@@ -323,6 +377,79 @@ class DatabaseManager {
 
         } catch (Exception $e) {
             $this->logger->error('DATABASE', 'Failed to get activity: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Get database instance for direct queries
+     */
+    public function getDbInstance() {
+        return $this->db;
+    }
+
+    /**
+     * Insert IOC (Indicator of Compromise)
+     */
+    public function insertIOC($ioc) {
+        try {
+            $stmt = $this->db->prepare('
+                INSERT OR REPLACE INTO iocs 
+                (ioc_type, ioc_value, threat_type, severity, confidence, source, description, tags, last_seen)
+                VALUES (:type, :value, :threat_type, :severity, :confidence, :source, :description, :tags, CURRENT_TIMESTAMP)
+            ');
+
+            $stmt->bindValue(':type', $ioc['type'], SQLITE3_TEXT);
+            $stmt->bindValue(':value', $ioc['value'], SQLITE3_TEXT);
+            $stmt->bindValue(':threat_type', $ioc['threat_type'] ?? '', SQLITE3_TEXT);
+            $stmt->bindValue(':severity', $ioc['severity'] ?? 'MEDIUM', SQLITE3_TEXT);
+            $stmt->bindValue(':confidence', $ioc['confidence'] ?? 50, SQLITE3_INTEGER);
+            $stmt->bindValue(':source', $ioc['source'] ?? '', SQLITE3_TEXT);
+            $stmt->bindValue(':description', $ioc['description'] ?? '', SQLITE3_TEXT);
+            $stmt->bindValue(':tags', json_encode($ioc['tags'] ?? []), SQLITE3_TEXT);
+
+            return $stmt->execute();
+
+        } catch (Exception $e) {
+            $this->logger->error('DATABASE', 'Failed to insert IOC: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get IOCs by type
+     */
+    public function getIOCs($type = null, $limit = 100) {
+        try {
+            if ($type) {
+                $stmt = $this->db->prepare('
+                    SELECT * FROM iocs 
+                    WHERE ioc_type = :type 
+                    ORDER BY last_seen DESC 
+                    LIMIT :limit
+                ');
+                $stmt->bindValue(':type', $type, SQLITE3_TEXT);
+            } else {
+                $stmt = $this->db->prepare('
+                    SELECT * FROM iocs 
+                    ORDER BY last_seen DESC 
+                    LIMIT :limit
+                ');
+            }
+
+            $stmt->bindValue(':limit', $limit, SQLITE3_INTEGER);
+            $result = $stmt->execute();
+            
+            $iocs = [];
+            while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                $row['tags'] = json_decode($row['tags'], true);
+                $iocs[] = $row;
+            }
+
+            return $iocs;
+
+        } catch (Exception $e) {
+            $this->logger->error('DATABASE', 'Failed to get IOCs: ' . $e->getMessage());
             return [];
         }
     }
