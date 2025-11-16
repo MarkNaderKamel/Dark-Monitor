@@ -1,0 +1,36 @@
+# Logs
+logs/
+*.log
+
+# Data files
+data/
+cache/
+
+# Environment variables
+.env
+.env.local
+
+# PHP
+vendor/
+composer.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sensitive files
+*.key
+*.pem
+secrets.txt
+
+# Temp files
+tmp/
+temp/
+*.tmp
