@@ -6,6 +6,18 @@ This is a comprehensive threat intelligence monitoring system designed for cyber
 
 ## Recent Changes
 
+**2025-11-16 (Enhanced v2.0):** Major Feature Enhancements
+- Added modern live dashboard (dashboard.html) with real-time auto-refresh
+- Integrated VirusTotal API for IOC enrichment (IPs, domains, URLs, hashes)
+- Integrated Have I Been Pwned API for email/domain breach checking
+- Added IP geolocation with country, ISP, proxy detection
+- Built alert rules engine with 7 smart rules (ransomware, APT, zero-day detection)
+- Created export manager (CSV, JSON, STIX formats)
+- Added monitoring for additional paste sites (Paste.ee, Ghostbin, Slexy, Rentry)
+- Fixed critical blocking issues with API rate limiting
+- Implemented 24-hour caching system for all enrichment APIs
+- All enhancements production-ready and fully tested
+
 **2025-11-16:** Initial project creation
 - Built complete PHP-based monitoring system
 - Created modular architecture with separate classes for different monitoring sources
