@@ -149,7 +149,7 @@ class EnrichmentQueue {
             try {
                 $abuseData = $this->enrichers['abuseipdb']->checkIP($ip);
                 $data['sources']['abuseipdb'] = $abuseData;
-                $data['reputation_score'] = max($data['reputation_score'], $abuseData['abuse_score'] ?? 0);
+                $data['reputation_score'] = max($data['reputation_score'], $abuseData['abuse_confidence_score'] ?? 0);
             } catch (Exception $e) {
                 error_log("AbuseIPDB enrichment failed for $ip: " . $e->getMessage());
             }
@@ -161,8 +161,9 @@ class EnrichmentQueue {
             try {
                 $vtData = $this->enrichers['virustotal']->checkIP($ip);
                 $data['sources']['virustotal'] = $vtData;
-                if (isset($vtData['malicious_votes'])) {
-                    $data['reputation_score'] = max($data['reputation_score'], $vtData['malicious_votes']);
+                if (isset($vtData['malicious'])) {
+                    $vtScore = ($vtData['malicious'] * 10) + ($vtData['suspicious'] ?? 0) * 5;
+                    $data['reputation_score'] = max($data['reputation_score'], min($vtScore, 100));
                 }
             } catch (Exception $e) {
                 error_log("VirusTotal enrichment failed for $ip: " . $e->getMessage());
@@ -210,8 +211,9 @@ class EnrichmentQueue {
             try {
                 $vtData = $this->enrichers['virustotal']->checkDomain($domain);
                 $data['sources']['virustotal'] = $vtData;
-                if (isset($vtData['malicious_votes'])) {
-                    $data['reputation_score'] = $vtData['malicious_votes'];
+                if (isset($vtData['malicious'])) {
+                    $vtScore = ($vtData['malicious'] * 10) + ($vtData['suspicious'] ?? 0) * 5;
+                    $data['reputation_score'] = max($data['reputation_score'], min($vtScore, 100));
                 }
             } catch (Exception $e) {
                 error_log("VirusTotal enrichment failed for $domain: " . $e->getMessage());

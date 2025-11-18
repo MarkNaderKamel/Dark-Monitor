@@ -286,7 +286,7 @@ try {
 
         case 'enrichment_stats':
             require_once __DIR__ . '/src/EnrichmentQueue.php';
-            $queue = new EnrichmentQueue($db->getConnection());
+            $queue = new EnrichmentQueue($db->getConnection(), $config, $logger);
             
             $stats = $queue->getQueueStats();
             echo json_encode(['success' => true, 'data' => $stats]);

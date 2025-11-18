@@ -88,6 +88,10 @@ class VirusTotalEnricher {
         return json_decode($response, true);
     }
 
+    public function checkIP($ip) {
+        return $this->enrichIP($ip);
+    }
+
     public function enrichIP($ip) {
         // Check cache first
         $cached = $this->db->getEnrichment('ip', $ip);
@@ -123,6 +127,10 @@ class VirusTotalEnricher {
         $this->db->storeEnrichment('ip', $ip, $enrichment);
 
         return $enrichment;
+    }
+
+    public function checkDomain($domain) {
+        return $this->enrichDomain($domain);
     }
 
     public function enrichDomain($domain) {
@@ -197,6 +205,10 @@ class VirusTotalEnricher {
         $this->db->storeEnrichment('url', $url, $enrichment);
 
         return $enrichment;
+    }
+
+    public function checkHash($hash) {
+        return $this->enrichHash($hash);
     }
 
     public function enrichHash($hash) {
