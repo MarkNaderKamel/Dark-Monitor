@@ -5,9 +5,9 @@ class IOCExtractor {
     
     private $patterns = [
         'ipv4' => '/\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/',
-        'ipv6' => '/\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b/',
+        'ipv6' => '/\b(?:(?:[0-9a-fA-F]{1,4}\:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}\:){1,7}\:|(?:[0-9a-fA-F]{1,4}\:){1,6}\:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}\:){1,5}(?:\:[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}\:){1,4}(?:\:[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}\:){1,3}(?:\:[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}\:){1,2}(?:\:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}\:(?:(?:\:[0-9a-fA-F]{1,4}){1,6})|(?:\:(?:\:[0-9a-fA-F]{1,4}){1,7}|\:))\b/i',
         'domain' => '/\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/i',
-        'url' => '/\b(?:https?|ftp):\/\/[^\s<>"\']+/i',
+        'url' => '/\b(?:https?|ftp)\:\/\/[^\s<>"\']+/i',
         'email' => '/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/',
         'md5' => '/\b[a-f0-9]{32}\b/i',
         'sha1' => '/\b[a-f0-9]{40}\b/i',
@@ -18,20 +18,20 @@ class IOCExtractor {
         'ssn' => '/\b\d{3}-\d{2}-\d{4}\b/',
         'credit_card' => '/\b(?:\d{4}[-\s]?){3}\d{4}\b/',
         'phone' => '/\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/',
-        'windows_path' => '/[A-Za-z]:\\\\(?:[^\\\\/:*?"<>|\r\n]+\\\\)*[^\\\\/:*?"<>|\r\n]*/i',
+        'windows_path' => '/[A-Za-z]\:\\\\(?:[^\\\\\/\:*?"<>|\r\n]+\\\\)*[^\\\\\/\:*?"<>|\r\n]*/i',
         'registry_key' => '/\b(?:HKEY_LOCAL_MACHINE|HKLM|HKEY_CURRENT_USER|HKCU|HKEY_CLASSES_ROOT|HKCR)\\\\[^\s<>]+/i',
         'mutex' => '/\\\\BaseNamedObjects\\\\[A-Za-z0-9_\-]+/i',
-        'file_hash_context' => '/(?:md5|sha1|sha256|hash)[\s:=]+([a-f0-9]{32,64})/i',
+        'file_hash_context' => '/(?:md5|sha1|sha256|hash)[\s\:=]+([a-f0-9]{32,64})/i',
     ];
 
     private $defangPatterns = [
         '/hxxp/i' => 'http',
         '/hXXp/i' => 'http',
-        '/\[dot\]/' => '.',
-        '/\[DOT\]/' => '.',
+        '/\[dot\]/i' => '.',
+        '/\[DOT\]/i' => '.',
         '/\[\.\]/' => '.',
-        '/\[:\]/' => ':',
-        '/\[@\]/' => '@',
+        '/\[\:\]/' => ':',
+        '/\[\@\]/' => '@',
     ];
 
     private $privateIPRanges = [
@@ -63,15 +63,15 @@ class IOCExtractor {
             'windows_artifacts' => [],
         ];
 
-        $iocs['ips'] = array_values(array_unique(array_filter(
+        $ipv4s = array_values(array_unique(array_filter(
             $this->extractPattern($text, 'ipv4'),
             [$this, 'isPublicIP']
         )));
 
-        $ipv6s = $this->extractPattern($text, 'ipv6');
-        if (!empty($ipv6s)) {
-            $iocs['ips'] = array_merge($iocs['ips'], array_values(array_unique($ipv6s)));
-        }
+        $ipv6s = $this->extractIPv6($text);
+        $publicIPv6s = array_values(array_unique(array_filter($ipv6s, [$this, 'isPublicIP'])));
+
+        $iocs['ips'] = array_merge($ipv4s, $publicIPv6s);
 
         $rawDomains = $this->extractPattern($text, 'domain');
         $iocs['domains'] = array_values(array_unique(array_filter($rawDomains, function($domain) {
@@ -131,19 +131,33 @@ class IOCExtractor {
     }
 
     private function isPublicIP($ip) {
+        if (strpos($ip, ':') !== false) {
+            return $this->isPublicIPv6($ip);
+        }
+        
         $longIP = ip2long($ip);
         if ($longIP === false) {
             return false;
         }
 
-        foreach ($this->privateIPRanges as $range) {
-            if (strpos($range, '/') === false) {
+        $ipv4PrivateRanges = [
+            '10.0.0.0/8',
+            '172.16.0.0/12',
+            '192.168.0.0/16',
+            '127.0.0.0/8',
+            '169.254.0.0/16',
+        ];
+
+        foreach ($ipv4PrivateRanges as $range) {
+            list($subnet, $mask) = explode('/', $range);
+            $subnetLong = ip2long($subnet);
+            
+            $maskInt = (int)$mask;
+            if ($maskInt < 0 || $maskInt > 32) {
                 continue;
             }
             
-            list($subnet, $mask) = explode('/', $range);
-            $subnetLong = ip2long($subnet);
-            $maskLong = -1 << (32 - (int)$mask);
+            $maskLong = $maskInt == 0 ? 0 : -1 << (32 - $maskInt);
             
             if (($longIP & $maskLong) == ($subnetLong & $maskLong)) {
                 return false;
@@ -151,6 +165,62 @@ class IOCExtractor {
         }
 
         return true;
+    }
+
+    private function isPublicIPv6($ip) {
+        $ipBin = @inet_pton($ip);
+        if ($ipBin === false) {
+            return false;
+        }
+
+        $ipv6PrivateRanges = [
+            '::1/128',
+            'fe80::/10',
+            'fc00::/7',
+        ];
+
+        foreach ($ipv6PrivateRanges as $range) {
+            list($subnet, $prefixLen) = explode('/', $range);
+            $subnetBin = @inet_pton($subnet);
+            
+            if ($subnetBin === false) {
+                continue;
+            }
+
+            $bytesToCheck = (int)($prefixLen / 8);
+            $bitsInLastByte = $prefixLen % 8;
+
+            for ($i = 0; $i < $bytesToCheck; $i++) {
+                if ($ipBin[$i] !== $subnetBin[$i]) {
+                    continue 2;
+                }
+            }
+
+            if ($bitsInLastByte > 0) {
+                $mask = 0xFF << (8 - $bitsInLastByte);
+                if ((ord($ipBin[$bytesToCheck]) & $mask) !== (ord($subnetBin[$bytesToCheck]) & $mask)) {
+                    continue;
+                }
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private function extractIPv6($text) {
+        $ipv6s = [];
+        $tokens = preg_split('/[\s,;\|\(\)\[\]\{\}<>"\']/', $text);
+        
+        foreach ($tokens as $token) {
+            $token = trim($token, " \t\n\r\0\x0B.!?:;");
+            if (strlen($token) > 0 && filter_var($token, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+                $ipv6s[] = $token;
+            }
+        }
+        
+        return $ipv6s;
     }
 
     private function isValidDomain($domain) {
