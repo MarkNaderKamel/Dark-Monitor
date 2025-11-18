@@ -16,10 +16,76 @@ $db = new DatabaseManager($config, $logger);
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
-$action = $_GET['action'] ?? 'stats';
+$action = $_GET['action'] ?? 'dashboard';
 
 try {
     switch ($action) {
+        case 'dashboard':
+            $findings = $db->getFindings(['limit' => 1000]);
+            $recent = $db->getFindings(['from_date' => date('Y-m-d H:i:s', strtotime('-24 hours'))]);
+            $today = $db->getFindings(['from_date' => date('Y-m-d 00:00:00')]);
+            
+            $statistics = [
+                'total_findings' => count($findings),
+                'today_findings' => count($today),
+                'total_iocs' => 0
+            ];
+            
+            $findings_by_severity = [
+                'CRITICAL' => 0,
+                'HIGH' => 0,
+                'MEDIUM' => 0,
+                'LOW' => 0
+            ];
+            
+            $findings_by_source = [];
+            $all_keywords = [];
+            
+            foreach ($findings as $finding) {
+                $severity = $finding['severity'] ?? 'LOW';
+                if (isset($findings_by_severity[$severity])) {
+                    $findings_by_severity[$severity]++;
+                }
+                
+                $source = $finding['source'] ?? 'Unknown';
+                if (!isset($findings_by_source[$source])) {
+                    $findings_by_source[$source] = 0;
+                }
+                $findings_by_source[$source]++;
+                
+                $keywords = is_string($finding['keywords']) ? json_decode($finding['keywords'], true) : $finding['keywords'];
+                if (is_array($keywords)) {
+                    foreach ($keywords as $keyword) {
+                        if (!isset($all_keywords[$keyword])) {
+                            $all_keywords[$keyword] = 0;
+                        }
+                        $all_keywords[$keyword]++;
+                    }
+                }
+                
+                $iocs = is_string($finding['iocs']) ? json_decode($finding['iocs'], true) : $finding['iocs'];
+                if (is_array($iocs)) {
+                    foreach ($iocs as $ioc_type => $ioc_list) {
+                        if (is_array($ioc_list)) {
+                            $statistics['total_iocs'] += count($ioc_list);
+                        }
+                    }
+                }
+            }
+            
+            $recent_findings = array_slice($findings, 0, 20);
+            
+            $response = [
+                'statistics' => $statistics,
+                'findings_by_severity' => $findings_by_severity,
+                'findings_by_source' => $findings_by_source,
+                'recent_findings' => $recent_findings,
+                'top_keywords' => $all_keywords
+            ];
+            
+            echo json_encode($response);
+            break;
+            
         case 'stats':
             $stats = [
                 'total_findings' => 0,
