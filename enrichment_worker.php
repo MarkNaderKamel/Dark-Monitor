@@ -14,7 +14,7 @@ require_once __DIR__ . '/src/EnrichmentQueue.php';
 $config = require __DIR__ . '/config.php';
 $logger = new Logger($config);
 $db = new DatabaseManager($config, $logger);
-$queue = new EnrichmentQueue($db->getConnection());
+$queue = new EnrichmentQueue($db->getConnection(), $config, $logger);
 
 $runOnce = in_array('--once', $argv);
 $batchSize = 10;

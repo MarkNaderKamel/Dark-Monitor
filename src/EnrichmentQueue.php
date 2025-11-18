@@ -1,13 +1,21 @@
 <?php
 
+require_once __DIR__ . '/VirusTotalEnricher.php';
+require_once __DIR__ . '/AbuseIPDBEnricher.php';
+require_once __DIR__ . '/ShodanEnricher.php';
+
 class EnrichmentQueue {
     private $db;
+    private $config;
+    private $logger;
     private $enrichers = [];
     private $cache = [];
     private $cacheFile;
     
-    public function __construct($db) {
+    public function __construct($db, $config, $logger) {
         $this->db = $db;
+        $this->config = $config;
+        $this->logger = $logger;
         $this->cacheFile = __DIR__ . '/../data/enrichment_cache.json';
         $this->loadCache();
         $this->initializeEnrichers();
@@ -24,19 +32,18 @@ class EnrichmentQueue {
     }
     
     private function initializeEnrichers() {
-        $vtApiKey = getenv('VIRUSTOTAL_API_KEY');
-        if ($vtApiKey) {
-            $this->enrichers['virustotal'] = new VirusTotalEnricher($vtApiKey);
+        if ($this->config['enrichment']['apis']['virustotal']['enabled'] ?? false) {
+            require_once __DIR__ . '/VirusTotalEnricher.php';
+            $dbManager = new DatabaseManager($this->config, $this->logger);
+            $this->enrichers['virustotal'] = new VirusTotalEnricher($this->config, $this->logger, $dbManager);
         }
         
-        $abuseApiKey = getenv('ABUSEIPDB_API_KEY');
-        if ($abuseApiKey) {
-            $this->enrichers['abuseipdb'] = new AbuseIPDBEnricher($abuseApiKey);
+        if ($this->config['enrichment']['apis']['abuseipdb']['enabled'] ?? false) {
+            $this->enrichers['abuseipdb'] = new AbuseIPDBEnricher($this->config, $this->logger);
         }
         
-        $shodanApiKey = getenv('SHODAN_API_KEY');
-        if ($shodanApiKey) {
-            $this->enrichers['shodan'] = new ShodanEnricher($shodanApiKey);
+        if ($this->config['enrichment']['apis']['shodan']['enabled'] ?? false) {
+            $this->enrichers['shodan'] = new ShodanEnricher($this->config, $this->logger);
         }
     }
     
@@ -319,77 +326,5 @@ class EnrichmentQueue {
         }
         
         return $stats;
-    }
-}
-
-class AbuseIPDBEnricher {
-    private $apiKey;
-    
-    public function __construct($apiKey) {
-        $this->apiKey = $apiKey;
-    }
-    
-    public function checkIP($ip) {
-        $url = "https://api.abuseipdb.com/api/v2/check?ipAddress=" . urlencode($ip);
-        
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Key: ' . $this->apiKey,
-            'Accept: application/json'
-        ]);
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        
-        if ($httpCode !== 200 || !$response) {
-            throw new Exception("AbuseIPDB API failed: HTTP $httpCode");
-        }
-        
-        $data = json_decode($response, true);
-        
-        return [
-            'abuse_score' => $data['data']['abuseConfidenceScore'] ?? 0,
-            'country' => $data['data']['countryCode'] ?? 'Unknown',
-            'usage_type' => $data['data']['usageType'] ?? 'Unknown',
-            'is_whitelisted' => $data['data']['isWhitelisted'] ?? false
-        ];
-    }
-}
-
-class ShodanEnricher {
-    private $apiKey;
-    
-    public function __construct($apiKey) {
-        $this->apiKey = $apiKey;
-    }
-    
-    public function checkIP($ip) {
-        $url = "https://api.shodan.io/shodan/host/{$ip}?key={$this->apiKey}";
-        
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        
-        if ($httpCode !== 200 || !$response) {
-            throw new Exception("Shodan API failed: HTTP $httpCode");
-        }
-        
-        $data = json_decode($response, true);
-        
-        return [
-            'ports' => $data['ports'] ?? [],
-            'vulns' => $data['vulns'] ?? [],
-            'os' => $data['os'] ?? 'Unknown',
-            'org' => $data['org'] ?? 'Unknown'
-        ];
     }
 }

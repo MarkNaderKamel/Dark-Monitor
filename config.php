@@ -286,6 +286,13 @@ return [
     // ============================================
     'pastebin' => [
         'enabled' => false,
+        'sites' => [
+            'pastebin.com' => 'https://scrape.pastebin.com/api_scraping.php',
+            'ghostbin.co' => 'https://ghostbin.co/browse',
+            'justpaste.it' => 'https://justpaste.it/trending',
+            'paste.ee' => 'https://paste.ee/recent',
+        ],
+        'check_interval' => 600, // 10 minutes
     ],
 
     'reddit' => [
@@ -308,6 +315,112 @@ return [
             // Add your company domain, API keys patterns, etc.
             // Example: 'yourcompany.com password',
             // Example: 'yourcompany api_key',
+        ],
+    ],
+
+    // ============================================
+    // IOC ENRICHMENT APIS
+    // ============================================
+    'enrichment' => [
+        'enabled' => true,
+        'cache_ttl' => 86400, // 24 hours
+        'batch_size' => 10,
+        'timeout' => 15,
+        
+        'apis' => [
+            'virustotal' => [
+                'enabled' => !empty(getenv('VIRUSTOTAL_API_KEY')),
+                'api_key' => getenv('VIRUSTOTAL_API_KEY') ?: '',
+                'base_url' => 'https://www.virustotal.com/api/v3',
+                'rate_limit' => 4, // requests per minute for free tier
+            ],
+            'abuseipdb' => [
+                'enabled' => !empty(getenv('ABUSEIPDB_API_KEY')),
+                'api_key' => getenv('ABUSEIPDB_API_KEY') ?: '',
+                'base_url' => 'https://api.abuseipdb.com/api/v2',
+                'rate_limit' => 1000, // requests per day for free tier
+            ],
+            'shodan' => [
+                'enabled' => !empty(getenv('SHODAN_API_KEY')),
+                'api_key' => getenv('SHODAN_API_KEY') ?: '',
+                'base_url' => 'https://api.shodan.io',
+                'rate_limit' => 1, // requests per second for free tier
+            ],
+            'hibp' => [
+                'enabled' => !empty(getenv('HIBP_API_KEY')),
+                'api_key' => getenv('HIBP_API_KEY') ?: '',
+                'base_url' => 'https://haveibeenpwned.com/api/v3',
+                'rate_limit' => 10, // requests per minute
+            ],
+        ],
+    ],
+
+    // ============================================
+    // ML THREAT SCORING
+    // ============================================
+    'ml' => [
+        'enabled' => true,
+        'log_features' => true, // Log feature vectors for future training
+        'feature_weights' => [
+            'ioc_density' => 0.25,
+            'keyword_severity' => 0.20,
+            'source_reputation' => 0.15,
+            'temporal_proximity' => 0.15,
+            'correlation_strength' => 0.15,
+            'enrichment_risk' => 0.10,
+        ],
+        'thresholds' => [
+            'critical' => 0.85,
+            'high' => 0.65,
+            'medium' => 0.40,
+            'low' => 0.20,
+        ],
+    ],
+
+    // ============================================
+    // STIX/TAXII EXPORT
+    // ============================================
+    'stix' => [
+        'enabled' => true,
+        'version' => '2.1',
+        'producer' => 'Security Monitoring System',
+        'tlp' => 'amber', // white, green, amber, red
+        'confidence' => 70, // 0-100
+        'validate_schema' => true,
+    ],
+
+    // ============================================
+    // MITRE ATT&CK MAPPING
+    // ============================================
+    'mitre' => [
+        'enabled' => true,
+        'framework_version' => '14.0',
+        'mapping_config' => __DIR__ . '/data/mitre_mappings.json',
+        'auto_map' => true,
+        'confidence_threshold' => 0.5,
+    ],
+
+    // ============================================
+    // WEBHOOK NOTIFICATIONS
+    // ============================================
+    'webhooks' => [
+        'slack' => [
+            'enabled' => !empty(getenv('SLACK_WEBHOOK_URL')),
+            'webhook_url' => getenv('SLACK_WEBHOOK_URL') ?: '',
+            'channel' => '#security-alerts',
+            'username' => 'Security Monitor',
+            'icon_emoji' => ':warning:',
+        ],
+        'discord' => [
+            'enabled' => !empty(getenv('DISCORD_WEBHOOK_URL')),
+            'webhook_url' => getenv('DISCORD_WEBHOOK_URL') ?: '',
+            'username' => 'Security Monitor',
+            'avatar_url' => '',
+        ],
+        'teams' => [
+            'enabled' => !empty(getenv('TEAMS_WEBHOOK_URL')),
+            'webhook_url' => getenv('TEAMS_WEBHOOK_URL') ?: '',
+            'theme_color' => 'FF0000',
         ],
     ],
 ];

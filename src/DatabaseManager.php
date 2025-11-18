@@ -7,6 +7,7 @@
 
 class DatabaseManager {
     private $db;
+    private $pdoConnection;
     private $logger;
     private $dbPath;
 
