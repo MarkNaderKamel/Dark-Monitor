@@ -42,7 +42,7 @@ try {
             $all_keywords = [];
             
             foreach ($findings as $finding) {
-                $severity = $finding['severity'] ?? 'LOW';
+                $severity = strtoupper($finding['severity'] ?? 'LOW');
                 if (isset($findings_by_severity[$severity])) {
                     $findings_by_severity[$severity]++;
                 }
@@ -73,7 +73,40 @@ try {
                 }
             }
             
-            $recent_findings = array_slice($findings, 0, 20);
+            $recent_findings_raw = array_slice($findings, 0, 20);
+            $recent_findings = [];
+            
+            foreach ($recent_findings_raw as $finding) {
+                $normalized = [
+                    'id' => $finding['id'] ?? 0,
+                    'title' => $finding['title'] ?? 'Untitled',
+                    'source' => $finding['source'] ?? 'Unknown',
+                    'url' => $finding['url'] ?? '',
+                    'snippet' => $finding['snippet'] ?? 'No snippet available',
+                    'severity' => strtoupper($finding['severity'] ?? 'LOW'),
+                    'threat_score' => $finding['threat_score'] ?? 0,
+                    'created_at' => $finding['created_at'] ?? $finding['timestamp'] ?? date('Y-m-d H:i:s'),
+                    'timestamp' => $finding['timestamp'] ?? $finding['created_at'] ?? date('Y-m-d H:i:s')
+                ];
+                
+                $normalized['keywords'] = is_string($finding['keywords']) 
+                    ? json_decode($finding['keywords'], true) 
+                    : ($finding['keywords'] ?? []);
+                
+                $normalized['iocs'] = is_string($finding['iocs']) 
+                    ? json_decode($finding['iocs'], true) 
+                    : ($finding['iocs'] ?? []);
+                
+                if (!is_array($normalized['keywords'])) {
+                    $normalized['keywords'] = [];
+                }
+                
+                if (!is_array($normalized['iocs'])) {
+                    $normalized['iocs'] = [];
+                }
+                
+                $recent_findings[] = $normalized;
+            }
             
             $response = [
                 'statistics' => $statistics,
@@ -104,7 +137,7 @@ try {
             $stats['last_24h'] = count($recent);
 
             foreach ($findings as $finding) {
-                $severity = $finding['severity'] ?? 'LOW';
+                $severity = strtoupper($finding['severity'] ?? 'LOW');
                 switch ($severity) {
                     case 'CRITICAL':
                         $stats['critical']++;

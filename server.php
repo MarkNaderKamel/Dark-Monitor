@@ -9,8 +9,8 @@
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $file = __DIR__ . $uri;
 
-// Serve static files
-if ($uri !== '/' && file_exists($file) && !is_dir($file)) {
+// Serve static files (let PHP's built-in server handle them)
+if ($uri !== '/' && file_exists($file) && !is_dir($file) && !preg_match('/\.php$/', $uri)) {
     return false;
 }
 

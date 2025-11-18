@@ -496,7 +496,17 @@
             container.innerHTML = findings.map(finding => {
                 const severity = (finding.severity || 'MEDIUM').toLowerCase();
                 const snippet = finding.snippet ? finding.snippet.substring(0, 150) + '...' : 'No snippet available';
-                const iocs = finding.iocs ? JSON.parse(finding.iocs) : {};
+                
+                let iocs = {};
+                try {
+                    if (typeof finding.iocs === 'string' && finding.iocs.trim()) {
+                        iocs = JSON.parse(finding.iocs);
+                    } else if (typeof finding.iocs === 'object' && finding.iocs !== null) {
+                        iocs = finding.iocs;
+                    }
+                } catch (e) {
+                    iocs = {};
+                }
                 
                 let iocHtml = '';
                 if (Object.keys(iocs).length > 0) {
