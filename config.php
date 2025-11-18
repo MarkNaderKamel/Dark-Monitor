@@ -352,6 +352,30 @@ return [
                 'base_url' => 'https://haveibeenpwned.com/api/v3',
                 'rate_limit' => 10, // requests per minute
             ],
+            'alienvault_otx' => [
+                'enabled' => !empty(getenv('ALIENVAULT_OTX_API_KEY')),
+                'api_key' => getenv('ALIENVAULT_OTX_API_KEY') ?: '',
+                'base_url' => 'https://otx.alienvault.com/api/v1',
+                'rate_limit' => 10, // requests per minute for free tier
+            ],
+            'greynoise' => [
+                'enabled' => !empty(getenv('GREYNOISE_API_KEY')),
+                'api_key' => getenv('GREYNOISE_API_KEY') ?: '',
+                'base_url' => 'https://api.greynoise.io/v3',
+                'rate_limit' => 50, // requests per minute for free tier
+            ],
+            'phishtank' => [
+                'enabled' => !empty(getenv('PHISHTANK_API_KEY')),
+                'api_key' => getenv('PHISHTANK_API_KEY') ?: '',
+                'base_url' => 'https://checkurl.phishtank.com',
+                'rate_limit' => 10, // requests per minute
+            ],
+            'pulsedive' => [
+                'enabled' => !empty(getenv('PULSEDIVE_API_KEY')),
+                'api_key' => getenv('PULSEDIVE_API_KEY') ?: '',
+                'base_url' => 'https://pulsedive.com/api',
+                'rate_limit' => 30, // requests per minute for free tier
+            ],
         ],
     ],
 
