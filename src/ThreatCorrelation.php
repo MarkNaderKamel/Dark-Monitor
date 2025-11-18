@@ -234,4 +234,54 @@ class ThreatCorrelation {
 
         return min($score, 100);
     }
+
+    /**
+     * Analyze all correlations (for API endpoint)
+     */
+    public function analyzeAll() {
+        return $this->correlateFindings();
+    }
+
+    /**
+     * Find findings related to a specific finding ID
+     */
+    public function findRelated($findingId) {
+        try {
+            $targetFinding = $this->db->getFinding($findingId);
+            if (!$targetFinding) {
+                return [];
+            }
+
+            $stmt = $this->db->getConnection()->prepare('
+                SELECT * FROM threat_correlations
+                WHERE finding_id_1 = :id OR finding_id_2 = :id
+                ORDER BY correlation_score DESC
+                LIMIT 20
+            ');
+            $stmt->execute(['id' => $findingId]);
+            $correlations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $related = [];
+            foreach ($correlations as $corr) {
+                $relatedId = ($corr['finding_id_1'] == $findingId) ? 
+                    $corr['finding_id_2'] : $corr['finding_id_1'];
+                
+                $relatedFinding = $this->db->getFinding($relatedId);
+                if ($relatedFinding) {
+                    $related[] = [
+                        'finding' => $relatedFinding,
+                        'correlation_score' => $corr['correlation_score'],
+                        'common_iocs' => json_decode($corr['common_iocs'], true),
+                        'mitre_techniques' => json_decode($corr['mitre_techniques'], true)
+                    ];
+                }
+            }
+
+            return $related;
+
+        } catch (Exception $e) {
+            $this->logger->error('CORRELATION', 'Failed to find related findings: ' . $e->getMessage());
+            return [];
+        }
+    }
 }

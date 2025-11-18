@@ -544,11 +544,60 @@ class DatabaseManager {
     }
 
     /**
+     * Get database connection (PDO for advanced features)
+     */
+    public function getConnection() {
+        try {
+            if (!isset($this->pdoConnection)) {
+                $this->pdoConnection = new PDO('sqlite:' . $this->dbPath);
+                $this->pdoConnection->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            }
+            return $this->pdoConnection;
+        } catch (Exception $e) {
+            $this->logger->error('DATABASE', 'Failed to get PDO connection: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Get a single finding by ID
+     */
+    public function getFinding($id) {
+        try {
+            $stmt = $this->db->prepare('SELECT * FROM findings WHERE id = :id LIMIT 1');
+            $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+            $result = $stmt->execute();
+            
+            $row = $result->fetchArray(SQLITE3_ASSOC);
+            
+            if (!$row) {
+                return null;
+            }
+            
+            $row['keywords'] = json_decode($row['keywords'], true) ?? [];
+            $row['iocs'] = json_decode($row['iocs'], true) ?? [];
+            
+            if (isset($row['metadata'])) {
+                $row['metadata'] = json_decode($row['metadata'], true) ?? [];
+            }
+            
+            return $row;
+            
+        } catch (Exception $e) {
+            $this->logger->error('DATABASE', 'Failed to get finding: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Close database connection
      */
     public function close() {
         if ($this->db) {
             $this->db->close();
+        }
+        if (isset($this->pdoConnection)) {
+            $this->pdoConnection = null;
         }
     }
 }

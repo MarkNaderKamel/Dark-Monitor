@@ -217,6 +217,95 @@ try {
             echo json_encode(['success' => true, 'data' => $results]);
             break;
 
+        case 'ml_score':
+            require_once __DIR__ . '/src/MLThreatScorer.php';
+            $mlScorer = new MLThreatScorer($db->getConnection());
+            
+            $findingId = $_GET['id'] ?? null;
+            if (!$findingId) {
+                throw new Exception('Finding ID required');
+            }
+            
+            $finding = $db->getFinding($findingId);
+            if (!$finding) {
+                throw new Exception('Finding not found');
+            }
+            
+            $score = $mlScorer->scoreFinding($finding);
+            echo json_encode(['success' => true, 'data' => $score]);
+            break;
+
+        case 'ml_trends':
+            require_once __DIR__ . '/src/MLThreatScorer.php';
+            $mlScorer = new MLThreatScorer($db->getConnection());
+            
+            $source = $_GET['source'] ?? '';
+            $days = $_GET['days'] ?? 7;
+            
+            $trends = $mlScorer->predictThreatTrend($source, $days);
+            echo json_encode(['success' => true, 'data' => $trends]);
+            break;
+
+        case 'stix_export':
+            require_once __DIR__ . '/src/STIXExporter.php';
+            $exporter = new STIXExporter($db->getConnection());
+            
+            $findingIds = isset($_GET['ids']) ? explode(',', $_GET['ids']) : [];
+            $stixBundle = $exporter->exportFindings($findingIds, 'json');
+            
+            header('Content-Type: application/stix+json');
+            header('Content-Disposition: attachment; filename="threat-intel-' . date('Y-m-d') . '.json"');
+            echo $stixBundle;
+            exit;
+
+        case 'mitre_mapping':
+            require_once __DIR__ . '/src/MITREMapper.php';
+            $mapper = new MITREMapper();
+            
+            $findingId = $_GET['id'] ?? null;
+            if (!$findingId) {
+                throw new Exception('Finding ID required');
+            }
+            
+            $finding = $db->getFinding($findingId);
+            if (!$finding) {
+                throw new Exception('Finding not found');
+            }
+            
+            $techniques = $mapper->mapFindingToMITRE($finding);
+            echo json_encode(['success' => true, 'data' => $techniques]);
+            break;
+
+        case 'mitre_tactics':
+            require_once __DIR__ . '/src/MITREMapper.php';
+            $mapper = new MITREMapper();
+            
+            $byTactic = $mapper->getTechniquesByTactic();
+            echo json_encode(['success' => true, 'data' => $byTactic]);
+            break;
+
+        case 'enrichment_stats':
+            require_once __DIR__ . '/src/EnrichmentQueue.php';
+            $queue = new EnrichmentQueue($db->getConnection());
+            
+            $stats = $queue->getQueueStats();
+            echo json_encode(['success' => true, 'data' => $stats]);
+            break;
+
+        case 'correlation':
+            require_once __DIR__ . '/src/ThreatCorrelation.php';
+            $correlator = new ThreatCorrelation($config, $logger, $db);
+            
+            $findingId = $_GET['id'] ?? null;
+            if (!$findingId) {
+                $correlations = $correlator->analyzeAll();
+            } else {
+                $correlations = $correlator->findRelated($findingId);
+            }
+            
+            echo json_encode(['success' => true, 'data' => $correlations]);
+            break;
+
         default:
             throw new Exception('Invalid action');
     }
