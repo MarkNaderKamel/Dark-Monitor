@@ -153,6 +153,21 @@ class DatabaseManager {
                 FOREIGN KEY(finding_id_2) REFERENCES findings(id)
             )
         ');
+
+        // Enrichment queue table for async IOC enrichment
+        $this->db->exec('
+            CREATE TABLE IF NOT EXISTS enrichment_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                finding_id INTEGER NOT NULL,
+                iocs TEXT,
+                status TEXT DEFAULT "pending",
+                error TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(finding_id) REFERENCES findings(id)
+            )
+        ');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_enrichment_status ON enrichment_queue(status)');
     }
 
     /**
