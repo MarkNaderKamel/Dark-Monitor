@@ -80,25 +80,57 @@ class TelegramMonitor {
     private function getUpdates($offset = 0) {
         $url = $this->apiUrl . '/getUpdates?offset=' . $offset . '&timeout=30';
         
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 40);
+        $maxRetries = 3;
+        $attempt = 0;
         
-        $response = curl_exec($ch);
-        curl_close($ch);
+        while ($attempt < $maxRetries) {
+            try {
+                $ch = curl_init($url);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 40);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+                curl_setopt($ch, CURLOPT_ENCODING, '');
+                curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                    'Accept: application/json',
+                    'Connection: keep-alive'
+                ]);
+                
+                $response = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $curlError = curl_error($ch);
+                curl_close($ch);
 
-        if (!$response) {
-            throw new Exception('Failed to fetch Telegram updates');
+                if ($response === false) {
+                    throw new Exception("cURL error: $curlError");
+                }
+
+                if ($httpCode !== 200) {
+                    throw new Exception("HTTP error: $httpCode");
+                }
+
+                $data = json_decode($response, true);
+
+                if (!isset($data['ok']) || !$data['ok']) {
+                    $error = $data['description'] ?? 'Unknown error';
+                    throw new Exception("Telegram API error: $error");
+                }
+
+                return $data['result'] ?? [];
+
+            } catch (Exception $e) {
+                $attempt++;
+                if ($attempt < $maxRetries) {
+                    $this->logger->warning('TELEGRAM', "Request failed (attempt $attempt/$maxRetries): " . $e->getMessage() . " - Retrying...");
+                    sleep(2);
+                } else {
+                    throw new Exception("Failed after $maxRetries attempts: " . $e->getMessage());
+                }
+            }
         }
 
-        $data = json_decode($response, true);
-
-        if (!isset($data['ok']) || !$data['ok']) {
-            $error = $data['description'] ?? 'Unknown error';
-            throw new Exception("Telegram API error: $error");
-        }
-
-        return $data['result'] ?? [];
+        return [];
     }
 
     /**
